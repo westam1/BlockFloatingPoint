@@ -127,7 +127,11 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="BlockFloatingPoint.cpp" />
+    <ClCompile Include="BlockFloatingPoint.cc" />
+    <ClCompile Include="C:\Users\westa\Downloads\bfp_kernel.cc" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="C:\Users\westa\Downloads\bfp.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
