@@ -82,11 +82,10 @@ static float Do_MulInt(int32_t A, int32_t B, uint32_t Exp) {
 
 	if ((aM == 0 || bM == 0)) { return 0.f; }
 
-	aM <<= 7;
-	bM <<= 8;
+	bM <<= 1;
 	zM = uint64_t(aM) * uint64_t(bM);
-	int shift = countLeadingZeros(zM, 64) - 2;
-	zM0 = zM >> 32 - shift;
+	int shift = countLeadingZeros(zM, 50) - 2;
+	zM0 = zM >> 18 - shift;
 	zM1 = (zM << shift) & 0xFFFFFFFF;
 	zM0 |= (zM1 != 0);
 	zExp -= shift;
@@ -193,6 +192,6 @@ int main() {
 	}
 
 	//Run_BlockOp(bA, bB, op_Add, dt_results);
-	Run_BlockOp(bA, bB, op_Mul, dt_full);
+	Run_BlockOp(bA, bB, op_Mul, dt_results);
 	//Run_BlockOp(bA, bB, op_Mac, dt_full);
 }
