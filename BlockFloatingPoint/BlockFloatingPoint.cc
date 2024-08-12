@@ -8,7 +8,7 @@ constexpr auto FAILURE				= 1;
 constexpr auto SZ_STR				= 64;
 constexpr auto SZ_BLOCK				= 16384;
 
-constexpr auto MAX_GEN				= 1.f;
+constexpr auto MAX_GEN				= 10.f;
 
 #define ift_getexponent(A)			uint16_t(((A) >> 23) & 0xFF)													// checked
 #define ift_getmantissa(A)			((A) & 0x007FFFFF)																// checked
@@ -16,9 +16,10 @@ constexpr auto MAX_GEN				= 1.f;
 
 #define ift_restoreleadingone(A)	(A | 0x800000)
 
-#define ift_packfloat(S,E,M)		(( ( (uint32_t) S )<<31 ) & 0x80000000 | ( ( (uint32_t) E )<<23 ) & 0x7F800000 | M & 0x007FFFFF)
+#define ift_packfloat(S,E,M)		(((( ( (uint32_t) S )<<31 ) & 0x80000000) | (( ( (uint32_t) E )<<23 ) & 0x7F800000) | (M & 0x007FFFFF)))
 
 #define SOFTFP_DISPLAY(A,B)			int2str_b(__float_as_uint(A), B); printf("Float %s = %e, %.8x, %s\n", #A, A, __float_as_uint(A), B);		// checked
+#define SOFTAT_DISPLAY(A,B)			printf("Aligned %e to %.8x for %s\n", B, A, #A);
 
 typedef enum OpTypes {
 	op_Add,
@@ -35,23 +36,6 @@ typedef enum DisplayType {
 uint32_t GetMaxExponentCPU(const float* input, int n);
 float __uint_as_float(uint32_t x);
 uint32_t __float_as_uint(float x);
-void LaunchBFPCPUKernel(const float* input, float* output, int n, int bit_width, int block_size);
-void BFPPrimeCPUKernel(const float* input, float* output, uint32_t* output2, uint32_t* sharedExp, const int n, const int offset, const int stride, const int bit_width, const int block_size,
-	const int sub_block_size, const int sub_block_shift_bits, const int rounding_mode);
-
-
-static inline void shift64RightJamming(uint64_t a, int_fast16_t count, uint64_t* zPtr) {
-	uint64_t z;
-
-	if (count == 0) {
-		z = a;
-	} else if (count < 64) {
-		z = (a >> count) | ((a << ((-count) & 63)) != 0);
-	} else {
-		z = (a != 0);
-	}
-	*zPtr = z;
-}
 
 static int int2str_b(int32_t In, char Str[SZ_STR]) {
 	int i2 = 0;
@@ -65,6 +49,15 @@ static int int2str_b(int32_t In, char Str[SZ_STR]) {
 
 	return SUCCESS;
 }
+static int countLeadingZeros(int64_t In, int Start) {
+	int len = sizeof(In) * 8 - 1;
+	if (Start - 1 > len) { Start = len; }
+	for (int i = Start, i2 = 0; i >= 0; i--) {
+		if (In & uint64_t(1) << i) { return i2 - 1; }
+		i2++;
+	}
+	return Start;
+}
 static void TryAlign(const float* Array, int N, int32_t *ArrayOut, uint32_t *SharedExp) {
 	uint32_t max = GetMaxExponentCPU(Array, N);
 	for (int i = 0; i < N; i++) {
@@ -74,61 +67,39 @@ static void TryAlign(const float* Array, int N, int32_t *ArrayOut, uint32_t *Sha
 		int posShift = max - exp;
 		m = ift_restoreleadingone(m);
 		m >>= posShift;
-		ArrayOut[i] = ((sign << 31) & 0x80000000) | m;
+		if (Array[i] == 0) { ArrayOut[i] = 0; } else { ArrayOut[i] = ((sign << 31) & 0x80000000) | m; }
 	}
 	*SharedExp = max;
 }
 
-static float Do_Mul(float A, float B) {
-	char str[SZ_STR]{};
-	uint8_t aSign = ift_getsign(__float_as_uint(A)), bSign = ift_getsign(__float_as_uint(B)), zSign = aSign ^ bSign;
-	uint32_t aExp = ift_getexponent(__float_as_uint(A)), bExp = ift_getexponent(__float_as_uint(B));
-	uint32_t aM = ift_getmantissa(__float_as_uint(A)), bM = ift_getmantissa(__float_as_uint(B));
-	uint32_t zExp = aExp + aExp - 127;
-	uint64_t zM;
-	uint32_t roundBits;
-
-	aM = ift_restoreleadingone(aM);
-	bM = ift_restoreleadingone(bM);
-	aM <<= 7; bM <<= 8;
-	shift64RightJamming((uint64_t(aM)) * uint64_t(bM), 32, &zM);
-	zM &= 0x7FFFFF;
-	if (0 <= (int32_t)(zM << 1)) {
-		zM <<= 1;
-		--zExp;
-	}
-
-	roundBits = zM & 0x7F;
-	zM = (zM + roundBits) >> 7;
-	zM &= ~(((roundBits ^ 0x40) == 0) & 0);
-	if (zM == 0) { zExp = 0; }
-
-	return __uint_as_float(ift_packfloat(zSign, zExp, zM));
-}
 static float Do_MulInt(int32_t A, int32_t B, uint32_t Exp) {
 	char str[SZ_STR]{};
 	uint8_t aSign = ift_getsign(A), bSign = ift_getsign(B), zSign = aSign ^ bSign;
-	uint32_t aM = ift_getmantissa(A), bM = ift_getmantissa(B);
-	uint32_t zExp = Exp + Exp - 127;
+	uint32_t aM = (A & 0x7FFFFFFF), bM = (B & 0x7FFFFFFF);
+	uint32_t zExp = Exp + Exp - 127, zM0, zM1;
 	uint64_t zM;
 	uint32_t roundBits;
 
-	aM = ift_restoreleadingone(aM);
-	bM = ift_restoreleadingone(bM);
-	aM <<= 7; bM <<= 8;
-	shift64RightJamming((uint64_t(aM)) * uint64_t(bM), 32, &zM);
-	zM &= 0x7FFFFF;
-	if (0 <= (int32_t)(zM << 1)) {
-		zM <<= 1;
-		--zExp;
+	if ((aM == 0 || bM == 0)) { return 0.f; }
+
+	aM <<= 7;
+	bM <<= 8;
+	zM = uint64_t(aM) * uint64_t(bM);
+	int shift = countLeadingZeros(zM, 64) - 2;
+	zM0 = zM >> 32 - shift;
+	zM1 = (zM << shift) & 0xFFFFFFFF;
+	zM0 |= (zM1 != 0);
+	zExp -= shift;
+	if (0 > (int32_t)(zM0 << 1)) {
+		zM0 >>= 1;
+		zExp++;
 	}
 
-	roundBits = zM & 0x7F;
-	zM = (zM + roundBits) >> 7;
-	zM &= ~(((roundBits ^ 0x40) == 0) & 0);
-	if (zM == 0) { zExp = 0; }
-
-	return __uint_as_float(ift_packfloat(zSign, zExp, zM));
+	roundBits = zM0 & 0x7F;
+	zM0 = (zM0 + roundBits) >> 6;
+	zM0 &= ~(((roundBits ^ 0x40) == 0) & 0);
+	if (zM0 == 0) { zExp = 0; }
+	return __uint_as_float(ift_packfloat(zSign, zExp, zM0));
 }
 
 static int Run_BlockOp(float BlockA[SZ_BLOCK], float BlockB[SZ_BLOCK], op_t Op, display_t Display) {
@@ -168,13 +139,12 @@ static int Run_BlockOp(float BlockA[SZ_BLOCK], float BlockB[SZ_BLOCK], op_t Op, 
 	for (int i = 0; i < SZ_BLOCK; i++) {
 		if (__float_as_uint(cvrtOut[i]) == __float_as_uint(BlockA[i])) { count++; } if (__float_as_uint(cvrtOut[i+SZ_BLOCK]) == __float_as_uint(BlockB[i])) { count++; }
 	}
-	printf("MATCH COUNT %i\n", count);
 
 	// Generate block fp values.
 	for (int i = 0; i < SZ_BLOCK; i++) {
 		switch (Op) {
 			case op_Add: gen[i] = cvrtOut[i] + cvrtOut[i + SZ_BLOCK]; break;
-			case op_Mul: //gen[i] = Do_Mul(cvrtOut[i], cvrtOut[i+SZ_BLOCK]);
+			case op_Mul: gen[i] = //Do_Mul(BlockA[i], BlockB[i]);
 						 gen[i] = Do_MulInt(cvrtInt[i], cvrtInt[i+SZ_BLOCK], sharedExp);
 				//gen[i] = cvrtOut[i] * cvrtOut[i+SZ_BLOCK];	
 				//printf("MUL test: %e * %e = %e (should be %e)\n", BlockA[i].f, BlockB[i].f, ret.f, truth[i]);
@@ -218,11 +188,11 @@ int main() {
 
 	// TODO: Best way to do this is with repeated tests and built up statistics over many, many blocks
 	for (int i = 0; i < SZ_BLOCK; i++) {
-		bA[i] = (rand() / float(RAND_MAX)) * MAX_GEN;
-		bB[i] = (rand() / float(RAND_MAX)) * MAX_GEN;
+		bA[i] = (rand() / float(RAND_MAX)) * MAX_GEN - (MAX_GEN / 2);
+		bB[i] = (rand() / float(RAND_MAX)) * MAX_GEN - (MAX_GEN / 2);
 	}
 
-	Run_BlockOp(bA, bB, op_Add, dt_results);
-	Run_BlockOp(bA, bB, op_Mul, dt_results);
-	Run_BlockOp(bA, bB, op_Mac, dt_full);
+	//Run_BlockOp(bA, bB, op_Add, dt_results);
+	Run_BlockOp(bA, bB, op_Mul, dt_full);
+	//Run_BlockOp(bA, bB, op_Mac, dt_full);
 }
