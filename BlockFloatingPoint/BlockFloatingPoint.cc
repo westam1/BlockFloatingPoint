@@ -76,7 +76,7 @@ static float Do_MulInt(int32_t A, int32_t B, uint32_t Exp) {
 	char str[SZ_STR]{};
 	uint8_t aSign = ift_getsign(A), bSign = ift_getsign(B), zSign = aSign ^ bSign;
 	uint32_t aM = (A & 0x7FFFFFFF), bM = (B & 0x7FFFFFFF);
-	uint32_t zExp = Exp + Exp - 127, zM0, zM1;
+	uint32_t zExp = Exp + 2, zM0, zM1;
 	uint64_t zM;
 	uint32_t roundBits;
 
@@ -84,7 +84,7 @@ static float Do_MulInt(int32_t A, int32_t B, uint32_t Exp) {
 
 	bM <<= 1;
 	zM = uint64_t(aM) * uint64_t(bM);
-	int shift = countLeadingZeros(zM, 50) - 2;
+	int shift = countLeadingZeros(zM, 48);
 	zM0 = zM >> 18 - shift;
 	zM1 = (zM << shift) & 0xFFFFFFFF;
 	zM0 |= (zM1 != 0);
