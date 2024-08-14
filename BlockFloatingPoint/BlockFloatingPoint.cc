@@ -76,7 +76,7 @@ static float Do_MulInt(int32_t A, int32_t B, uint32_t Exp) {
 	char str[SZ_STR]{};
 	uint8_t aSign = ift_getsign(A), bSign = ift_getsign(B), zSign = aSign ^ bSign;
 	uint32_t aM = (A & 0x7FFFFFFF), bM = (B & 0x7FFFFFFF);
-	uint32_t zExp = Exp + 2, zM0, zM1;
+	uint32_t zExp = Exp + Exp - 127, zM0, zM1;
 	uint64_t zM;
 	uint32_t roundBits;
 
@@ -96,7 +96,7 @@ static float Do_MulInt(int32_t A, int32_t B, uint32_t Exp) {
 
 	roundBits = zM0 & 0x7F;
 	zM0 = (zM0 + roundBits) >> 6;
-	zM0 &= ~(((roundBits ^ 0x40) == 0) & 0);
+	//zM0 &= ~(((roundBits ^ 0x40) == 0) & 0);
 	if (zM0 == 0) { zExp = 0; }
 	return __uint_as_float(ift_packfloat(zSign, zExp, zM0));
 }
@@ -194,4 +194,8 @@ int main() {
 	//Run_BlockOp(bA, bB, op_Add, dt_results);
 	Run_BlockOp(bA, bB, op_Mul, dt_results);
 	//Run_BlockOp(bA, bB, op_Mac, dt_full);
+
+	// Template showing how to use this to test a specific value during dev 
+	float result = Do_MulInt(0x4c530, 0x4cccc, 0x85);
+	SOFTFP_DISPLAY(result, str);
 }
