@@ -93,6 +93,7 @@ static float Do_MulInt(int32_t A, int32_t B, uint32_t Exp) {
 	zM0 |= (zM1 != 0);
 	zExp -= shift;
 	if (0 > (int32_t)(zM0 << 1)) {
+		printf("did it!\n");
 		zM0 >>= 1;
 		zExp++;
 	}
@@ -197,10 +198,11 @@ int main() {
 	//Run_BlockOp(bA, bB, op_Add, dt_results);
 	Run_BlockOp(bA, bB, op_Mul, dt_results);
 	//Run_BlockOp(bA, bB, op_Mac, dt_full);
+	printf("\n");
 
 	// Template showing how to use this to test a specific value during dev 
 	float result;
-	result = Do_MulInt(0x4c530, 0x4cccc, 0x83);
+	result = Do_MulInt(0x4c530, 0x26666, 0x83);
 	SOFTFP_DISPLAY(result, str);
 	result = Do_MulInt(0x26298, 0x26666, 0x83);
 	SOFTFP_DISPLAY(result, str); 
@@ -208,6 +210,12 @@ int main() {
 	SOFTFP_DISPLAY(result, str);
 	result = Do_MulInt(0x11cbb7, 0x26666, 0x83);
 	SOFTFP_DISPLAY(result, str);
+	printf("\n");
+
+	// Template showing how to display a floating point number
+	SOFTFP_DISPLAY(3.381076e0, str);
+	SOFTFP_DISPLAY(2.155151e-1, str);
+	printf("\n");
 
 	// Template showing how to use alignment to test a specific value during dev
 	int aligned;
