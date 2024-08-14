@@ -58,16 +58,19 @@ static int countLeadingZeros(int64_t In, int Start) {
 	}
 	return Start;
 }
+static int32_t AlignOne(const float In, uint32_t SharedExp) {
+	uint8_t sign = ift_getsign(__float_as_uint(In));
+	uint32_t exp = ift_getexponent(__float_as_uint(In));
+	uint32_t m = ift_getmantissa(__float_as_uint(In));
+	int posShift = SharedExp - exp;
+	m = ift_restoreleadingone(m);
+	m >>= posShift;
+	if (In == 0) { return 0; } else { return ((sign << 31) & 0x80000000) | m; }
+}
 static void TryAlign(const float* Array, int N, int32_t *ArrayOut, uint32_t *SharedExp) {
 	uint32_t max = GetMaxExponentCPU(Array, N);
 	for (int i = 0; i < N; i++) {
-		uint8_t sign = ift_getsign(__float_as_uint(Array[i]));
-		uint32_t exp = ift_getexponent(__float_as_uint(Array[i]));
-		uint32_t m = ift_getmantissa(__float_as_uint(Array[i]));
-		int posShift = max - exp;
-		m = ift_restoreleadingone(m);
-		m >>= posShift;
-		if (Array[i] == 0) { ArrayOut[i] = 0; } else { ArrayOut[i] = ((sign << 31) & 0x80000000) | m; }
+		ArrayOut[i] = AlignOne(Array[i], max);
 	}
 	*SharedExp = max;
 }
@@ -196,6 +199,18 @@ int main() {
 	//Run_BlockOp(bA, bB, op_Mac, dt_full);
 
 	// Template showing how to use this to test a specific value during dev 
-	float result = Do_MulInt(0x4c530, 0x4cccc, 0x85);
+	float result;
+	result = Do_MulInt(0x4c530, 0x4cccc, 0x83);
 	SOFTFP_DISPLAY(result, str);
+	result = Do_MulInt(0x26298, 0x26666, 0x83);
+	SOFTFP_DISPLAY(result, str); 
+	result = Do_MulInt(0x736ca, 0x26666, 0x83);
+	SOFTFP_DISPLAY(result, str);
+	result = Do_MulInt(0x11cbb7, 0x26666, 0x83);
+	SOFTFP_DISPLAY(result, str);
+
+	// Template showing how to use alignment to test a specific value during dev
+	int aligned;
+	aligned = AlignOne(-2.054351e0, 131);
+	SOFTAT_DISPLAY(aligned, -2.054351e0);
 }
